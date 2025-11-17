@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # ===================================
-# Enhanced Redis Installation Script for Phoenix Ecommerce App
-# Optimized for caching workloads with security and performance settings
+# Redis Installation Script for Multi-Site AI Cache
+# Optimized for AI workloads with multi-site support
+# Tested on Ubuntu 20.04/22.04/24.04
 # ===================================
 
 # Ensure the script is run as root or with sudo
@@ -14,6 +15,11 @@ fi
 # Get Redis password
 read -sp "Enter the desired Redis password (strong password recommended): " REDIS_PASS
 echo
+
+if [ -z "$REDIS_PASS" ]; then
+    echo "ERROR: Password cannot be empty"
+    exit 1
+fi
 
 # Get server memory for automatic RAM allocation
 TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
@@ -35,8 +41,8 @@ echo "====================================="
 
 # 1. Stop and purge any existing Redis installation
 echo "Removing previous Redis installation (if any)..."
-systemctl stop redis-server || true
-apt purge redis-server redis-tools -y
+systemctl stop redis-server 2>/dev/null || true
+apt purge redis-server redis-tools -y 2>/dev/null || true
 apt autoremove -y
 
 # 2. Install Redis
@@ -45,7 +51,9 @@ apt update
 apt install redis-server -y
 
 # Check if it starts with default config
-systemctl restart redis-server
+systemctl start redis-server
+sleep 2
+
 if ! systemctl is-active --quiet redis-server; then
     echo "ERROR: Redis failed to start with default configuration."
     echo "Check 'systemctl status redis-server' and 'journalctl -xeu redis-server.service' for details."
@@ -54,116 +62,169 @@ fi
 
 echo "Redis started successfully with default configuration."
 
-# 3. Configure Redis for ecommerce caching workload
+# 3. Configure Redis for multi-site AI caching workload
 REDIS_CONF="/etc/redis/redis.conf"
 
-echo "Configuring Redis for ecommerce caching workload..."
+echo "Configuring Redis for multi-site AI caching workload..."
 
 # Backup the original configuration
-cp $REDIS_CONF ${REDIS_CONF}.backup
+BACKUP_FILE="${REDIS_CONF}.backup.$(date +%Y%m%d_%H%M%S)"
+cp $REDIS_CONF $BACKUP_FILE
+echo "Config backed up to: $BACKUP_FILE"
 
-# --- SECURITY SETTINGS ---
-echo "Configuring security settings..."
+# Stop Redis before modifying config
+systemctl stop redis-server
 
-# Set password
-sed -i 's/^# requirepass .*/requirepass '"$REDIS_PASS"'/' $REDIS_CONF
-grep -q "^requirepass" $REDIS_CONF || echo "requirepass $REDIS_PASS" >> $REDIS_CONF
+# Create optimized configuration file
+cat > $REDIS_CONF << EOF
+# Redis Configuration for Multi-Site AI Cache
+# Generated on $(date)
+# Original backup: $BACKUP_FILE
 
-# Network settings - Bind to all interfaces for multi-site access
-sed -i 's/^bind .*/bind 0.0.0.0/' $REDIS_CONF
-sed -i 's/^protected-mode .*/protected-mode yes/' $REDIS_CONF
+# ===================================
+# NETWORK
+# ===================================
+bind 0.0.0.0
+protected-mode yes
+port 6379
+tcp-backlog 511
+timeout 0
+tcp-keepalive 300
 
-# --- MEMORY MANAGEMENT ---
-echo "Configuring memory management..."
+# ===================================
+# GENERAL
+# ===================================
+daemonize no
+supervised systemd
+pidfile /var/run/redis/redis-server.pid
+loglevel notice
+logfile /var/log/redis/redis-server.log
+databases 16
 
-# Add memory limit and policy
-echo "# Memory management settings - optimized for cache workload" >> $REDIS_CONF
-echo "maxmemory ${REDIS_MEMORY}mb" >> $REDIS_CONF
-echo "maxmemory-policy allkeys-lru" >> $REDIS_CONF
-echo "" >> $REDIS_CONF
+# ===================================
+# SECURITY
+# ===================================
+requirepass ${REDIS_PASS}
 
-# --- PERSISTENCE SETTINGS ---
-echo "Optimizing persistence settings for caching..."
+# Disable dangerous commands
+rename-command FLUSHALL ""
+rename-command FLUSHDB ""
+rename-command DEBUG ""
 
-# Adjust persistence for better cache performance
-# Comment out all existing save directives
-sed -i 's/^save /# save /' $REDIS_CONF
+# ===================================
+# MEMORY MANAGEMENT
+# ===================================
+maxmemory ${REDIS_MEMORY}mb
+maxmemory-policy allkeys-lru
+maxmemory-samples 10
 
-# Add our optimized persistence settings
-echo "# Cache-optimized persistence (less frequent saves)" >> $REDIS_CONF
-echo "save 900 1" >> $REDIS_CONF      # Save if at least 1 key changed in 15 minutes
-echo "save 300 100" >> $REDIS_CONF    # Save if at least 100 keys changed in 5 minutes
-echo "" >> $REDIS_CONF
+# ===================================
+# LAZY FREEING (AI Cache Optimization)
+# ===================================
+lazyfree-lazy-eviction yes
+lazyfree-lazy-expire yes
+lazyfree-lazy-server-del yes
+replica-lazy-flush yes
 
-# --- PERFORMANCE TUNING ---
-echo "Applying performance optimizations..."
+# ===================================
+# APPEND ONLY MODE (AOF)
+# ===================================
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite yes
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
 
-# Performance settings
-echo "# Performance optimizations for AI/ML and ecommerce caching" >> $REDIS_CONF
-echo "tcp-keepalive 300" >> $REDIS_CONF          # Keep connections alive
-echo "timeout 0" >> $REDIS_CONF                  # Don't timeout clients
-echo "databases 16" >> $REDIS_CONF               # 16 DBs for multi-site isolation (DB 0-15)
-echo "loglevel notice" >> $REDIS_CONF            # Reduced logging for performance
+# ===================================
+# SNAPSHOTTING (RDB)
+# ===================================
+save 900 1
+save 300 100
+stop-writes-on-bgsave-error yes
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+dir /var/lib/redis
 
-# Vector search optimization (Redis Stack/Search)
-# Note: search-workers only works with Redis Stack, not standard Redis
-# Uncomment the line below if you install Redis Stack later
-# echo "search-workers 6" >> $REDIS_CONF
+# ===================================
+# REPLICATION
+# ===================================
+# replica-serve-stale-data yes
+# replica-read-only yes
 
-echo "# Disable expensive commands in production" >> $REDIS_CONF
-echo "rename-command FLUSHALL \"\"" >> $REDIS_CONF  # Disable dangerous commands
-echo "rename-command FLUSHDB \"\"" >> $REDIS_CONF
-echo "rename-command DEBUG \"\"" >> $REDIS_CONF
-echo "" >> $REDIS_CONF
+# ===================================
+# PERFORMANCE
+# ===================================
+activerehashing yes
+hz 10
 
-# --- LATENCY SETTINGS ---
-echo "Optimizing for low latency..."
-echo "# Latency optimizations" >> $REDIS_CONF
-echo "no-appendfsync-on-rewrite yes" >> $REDIS_CONF  # Don't sync during rewrites
-echo "activerehashing yes" >> $REDIS_CONF           # Enable rehashing for faster reads
-echo "" >> $REDIS_CONF
+# Client output buffer limits
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit replica 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
 
-# --- AI CACHE OPTIMIZATIONS ---
-echo "Configuring AI cache optimizations..."
-echo "# AI/ML Cache optimizations for large payloads and multi-site" >> $REDIS_CONF
-echo "maxmemory-samples 10" >> $REDIS_CONF          # More accurate LRU
-echo "lazyfree-lazy-eviction yes" >> $REDIS_CONF    # Non-blocking evictions
-echo "lazyfree-lazy-expire yes" >> $REDIS_CONF
-echo "lazyfree-lazy-server-del yes" >> $REDIS_CONF
-echo "tcp-backlog 511" >> $REDIS_CONF               # Handle connection bursts
-echo "maxclients 10000" >> $REDIS_CONF              # Support many sites/connections
-echo "hz 10" >> $REDIS_CONF                         # Background task frequency
-echo "slowlog-log-slower-than 10000" >> $REDIS_CONF # Log queries >10ms
-echo "slowlog-max-len 128" >> $REDIS_CONF
-echo "" >> $REDIS_CONF
+# Max clients
+maxclients 10000
 
-# --- HYBRID PERSISTENCE FOR AI ---
-echo "# Hybrid persistence: RDB for snapshots + AOF for durability" >> $REDIS_CONF
-echo "appendonly yes" >> $REDIS_CONF
-echo "appendfsync everysec" >> $REDIS_CONF
-echo "auto-aof-rewrite-percentage 100" >> $REDIS_CONF
-echo "auto-aof-rewrite-min-size 64mb" >> $REDIS_CONF
-echo "" >> $REDIS_CONF
+# ===================================
+# SLOW LOG
+# ===================================
+slowlog-log-slower-than 10000
+slowlog-max-len 128
 
-# --- TLS/SSL REMINDER ---
-echo "# TLS/SSL is recommended for production but requires manual setup" >> $REDIS_CONF
-echo "# See https://redis.io/topics/encryption" >> $REDIS_CONF
-echo "" >> $REDIS_CONF
+# ===================================
+# LATENCY MONITOR
+# ===================================
+latency-monitor-threshold 100
 
-# --- CLIENT OUTPUT/INPUT BUFFER LIMITS ---
-echo "# Client buffer limits to prevent slow clients from affecting server" >> $REDIS_CONF
-echo "client-output-buffer-limit normal 0 0 0" >> $REDIS_CONF
-echo "client-output-buffer-limit replica 256mb 64mb 60" >> $REDIS_CONF
-echo "" >> $REDIS_CONF
+# ===================================
+# EVENT NOTIFICATION
+# ===================================
+notify-keyspace-events ""
 
-# 4. Restart Redis to apply changes
-systemctl restart redis-server
+# ===================================
+# ADVANCED CONFIG
+# ===================================
+hash-max-listpack-entries 512
+hash-max-listpack-value 64
+list-max-listpack-size -2
+list-compress-depth 0
+set-max-intset-entries 512
+zset-max-listpack-entries 128
+zset-max-listpack-value 64
+hll-sparse-max-bytes 3000
+stream-node-max-bytes 4096
+stream-node-max-entries 100
+EOF
 
-# 5. Check if Redis starts with the new configuration
+# Set correct permissions
+chown redis:redis $REDIS_CONF
+chmod 640 $REDIS_CONF
+
+# 4. Start Redis with new configuration
+echo "Starting Redis with new configuration..."
+systemctl start redis-server
+
+# Wait for Redis to fully start (give it time to initialize)
+echo "Waiting for Redis to start..."
+for i in {1..10}; do
+    sleep 1
+    if systemctl is-active --quiet redis-server; then
+        echo "Redis is active (attempt $i)"
+        sleep 1  # Extra second to ensure it's fully ready
+        break
+    fi
+    echo "Waiting... ($i/10)"
+done
+
+# 5. Verify Redis started successfully
 if systemctl is-active --quiet redis-server; then
     # Get server's IP address for connection string
     SERVER_IP=$(hostname -I | awk '{print $1}')
-    
+
     echo ""
     echo "=========================================================="
     echo "✅ Redis installation and configuration completed successfully!"
@@ -171,26 +232,28 @@ if systemctl is-active --quiet redis-server; then
     echo ""
     echo "📊 Redis Configuration Summary:"
     echo "• Memory allocated: ${REDIS_MEMORY}MB"
-    echo "• Eviction policy: allkeys-lru (removes least recently used keys when memory is full)"
-    echo "• Persistence: Optimized for caching (less frequent saves)"
-    echo "• Network: Listening on all interfaces (0.0.0.0:6379)"
-    echo "• Security: Password authentication enabled"
+    echo "• Eviction policy: allkeys-lru (removes least recently used keys)"
+    echo "• Persistence: Hybrid (RDB + AOF for durability)"
+    echo "• Network: 0.0.0.0:6379 (accessible from all interfaces)"
+    echo "• Security: Password authentication ENABLED"
+    echo "• Databases: 16 (DB 0-15 for multi-site isolation)"
+    echo "• Max connections: 10,000"
     echo ""
     echo "🔗 Redis Connection Information:"
     echo "• Host: ${SERVER_IP}"
     echo "• Port: 6379"
-    echo "• Redis CLI: redis-cli -h ${SERVER_IP} -p 6379 -a ${REDIS_PASS}"
+    echo "• Password: ${REDIS_PASS}"
     echo ""
-    echo "🔐 For your Phoenix application, add this to your .env file:"
+    echo "🔐 For your applications, use this connection URL:"
     echo "REDIS_URL=redis://:${REDIS_PASS}@${SERVER_IP}:6379"
     echo ""
     echo "🏗️ MULTI-SITE ARCHITECTURE (Single Redis URL for All Sites):"
-    echo "• Same connection URL for all sites: REDIS_URL=redis://:${REDIS_PASS}@${SERVER_IP}:6379"
+    echo "• Same connection URL for all sites"
     echo "• Use key prefixes to isolate sites: site:{site_id}:{type}:{key}"
     echo "• Examples:"
-    echo "  - Site A products: site:site_a:products:123"
-    echo "  - Site B AI cache: site:site_b:ai:embeddings:doc_456"
-    echo "  - Site C sessions: site:site_c:session:user_789"
+    echo "  - Site A products: site:store_a:products:123"
+    echo "  - Site B AI cache: site:store_b:ai:embeddings:doc_456"
+    echo "  - Site C sessions: site:store_c:session:user_789"
     echo ""
     echo "🤖 AI CACHE FEATURES ENABLED:"
     echo "• Large payload support (up to 512MB per key)"
@@ -199,8 +262,9 @@ if systemctl is-active --quiet redis-server; then
     echo "• Slow query logging (>10ms tracked)"
     echo "• 10,000 max concurrent connections"
     echo ""
-    echo "💡 OPTIONAL: Install Redis Stack for vector search (with search-workers)"
-    echo "   docker run -d -p 6379:6379 redis/redis-stack-server:latest"
+    echo "💡 OPTIONAL: For vector search, install Redis Stack:"
+    echo "   docker run -d -p 6380:6379 redis/redis-stack-server:latest"
+    echo "   (Use port 6380 to avoid conflict with this Redis)"
     echo ""
     echo "📝 RECOMMENDED TTL STRATEGIES:"
     echo "• Embeddings cache: 600s (10 min) - For temporary computations"
@@ -212,63 +276,89 @@ if systemctl is-active --quiet redis-server; then
     echo "1. Redis is accessible from ALL networks (0.0.0.0:6379)"
     echo "2. Protected mode: ENABLED (password required for all connections)"
     echo "3. HIGHLY RECOMMENDED: Set up firewall rules to restrict access"
-    echo "4. Original config backed up at ${REDIS_CONF}.backup"
+    echo "4. Original config backed up at ${BACKUP_FILE}"
     echo ""
     echo "🔒 CRITICAL: Configure firewall NOW:"
-    echo "sudo ufw allow from YOUR_APP_SERVER_IP to any port 6379"
-    echo "sudo ufw deny 6379  # Block all other IPs"
-    echo "sudo ufw enable"
+    echo "  sudo ufw allow from YOUR_APP_SERVER_IP to any port 6379"
+    echo "  sudo ufw deny 6379  # Block all other IPs"
+    echo "  sudo ufw enable"
     echo ""
-    echo "To test your Redis connection:"
-    echo "redis-cli -h ${SERVER_IP} -p 6379 -a ${REDIS_PASS} ping"
-    echo "Expected response: PONG"
+    echo "✅ Test your Redis connection:"
+    echo "  redis-cli -h ${SERVER_IP} -p 6379 -a ${REDIS_PASS} ping"
+    echo "  Expected response: PONG"
+    echo ""
     echo "=========================================================="
+
+    # Enable auto-start on boot
+    systemctl enable redis-server >/dev/null 2>&1
+
 else
-    echo "Redis failed to start after configuration changes."
-    echo "Reverting to original configuration..."
-    cp ${REDIS_CONF}.backup $REDIS_CONF
-    systemctl restart redis-server
-    
+    echo "❌ Redis failed to start after configuration changes."
+    echo ""
+    echo "Restoring backup configuration..."
+    cp $BACKUP_FILE $REDIS_CONF
+    systemctl start redis-server
+    echo "Reverted to backup: $BACKUP_FILE"
+    echo ""
     echo "Check these logs for details:"
-    echo "- systemctl status redis-server"
-    echo "- journalctl -xeu redis-server.service"
+    echo "  sudo journalctl -xeu redis-server.service --no-pager | tail -50"
+    echo "  sudo tail -50 /var/log/redis/redis-server.log"
+    echo ""
+    echo "Test config syntax:"
+    echo "  redis-server /etc/redis/redis.conf --test-memory 1"
+    echo ""
     exit 1
 fi
 
 # 6. Create an enhanced monitor script for Redis with multi-site stats
 MONITOR_SCRIPT="/usr/local/bin/redis-monitor.sh"
-echo "#!/bin/bash" > $MONITOR_SCRIPT
-echo "# Enhanced Redis monitoring script for AI cache + multi-site" >> $MONITOR_SCRIPT
-echo "REDIS_PASS='${REDIS_PASS}'" >> $MONITOR_SCRIPT
-echo "" >> $MONITOR_SCRIPT
-echo "echo \"========================================\"" >> $MONITOR_SCRIPT
-echo "echo \"Redis Multi-Site AI Cache Monitor\"" >> $MONITOR_SCRIPT
-echo "echo \"========================================\"" >> $MONITOR_SCRIPT
-echo "echo \"\"" >> $MONITOR_SCRIPT
-echo "echo \"📊 Memory Usage:\"" >> $MONITOR_SCRIPT
-echo "redis-cli -a \$REDIS_PASS info memory | grep -E '(used_memory_human|used_memory_peak_human|maxmemory_human|mem_fragmentation_ratio)'" >> $MONITOR_SCRIPT
-echo "echo \"\"" >> $MONITOR_SCRIPT
-echo "echo \"👥 Connections:\"" >> $MONITOR_SCRIPT
-echo "redis-cli -a \$REDIS_PASS info clients | grep -E '(connected_clients|blocked_clients|maxclients)'" >> $MONITOR_SCRIPT
-echo "echo \"\"" >> $MONITOR_SCRIPT
-echo "echo \"🔑 Keys per Database:\"" >> $MONITOR_SCRIPT
-echo "for db in {0..15}; do" >> $MONITOR_SCRIPT
-echo "  count=\$(redis-cli -a \$REDIS_PASS -n \$db DBSIZE | awk '{print \$2}')" >> $MONITOR_SCRIPT
-echo "  if [ \"\$count\" != \"0\" ]; then" >> $MONITOR_SCRIPT
-echo "    echo \"  DB \$db: \$count keys\"" >> $MONITOR_SCRIPT
-echo "  fi" >> $MONITOR_SCRIPT
-echo "done" >> $MONITOR_SCRIPT
-echo "echo \"\"" >> $MONITOR_SCRIPT
-echo "echo \"🐌 Slow Queries (last 5):\"" >> $MONITOR_SCRIPT
-echo "redis-cli -a \$REDIS_PASS SLOWLOG GET 5 | grep -E '(duration|cmd)' | head -10" >> $MONITOR_SCRIPT
-echo "echo \"\"" >> $MONITOR_SCRIPT
-echo "echo \"⚡ Stats:\"" >> $MONITOR_SCRIPT
-echo "redis-cli -a \$REDIS_PASS info stats | grep -E '(total_commands_processed|instantaneous_ops_per_sec|keyspace_hits|keyspace_misses|evicted_keys)'" >> $MONITOR_SCRIPT
-echo "echo \"\"" >> $MONITOR_SCRIPT
-echo "echo \"🎯 Cache Hit Rate:\"" >> $MONITOR_SCRIPT
-echo "redis-cli -a \$REDIS_PASS info stats | awk -F: '/keyspace_hits/{hits=\$2} /keyspace_misses/{misses=\$2} END{if(hits+misses>0) printf \"  %.2f%% (Hits: %d, Misses: %d)\\n\", (hits/(hits+misses))*100, hits, misses}'" >> $MONITOR_SCRIPT
-echo "echo \"========================================\"" >> $MONITOR_SCRIPT
+cat > $MONITOR_SCRIPT << 'MONITOR_EOF'
+#!/bin/bash
+# Enhanced Redis monitoring script for AI cache + multi-site
+
+REDIS_PASS='REDIS_PASSWORD_PLACEHOLDER'
+
+echo "========================================"
+echo "Redis Multi-Site AI Cache Monitor"
+echo "========================================"
+echo ""
+
+echo "📊 Memory Usage:"
+redis-cli -a $REDIS_PASS info memory 2>/dev/null | grep -E 'used_memory_human|used_memory_peak_human|maxmemory_human|mem_fragmentation_ratio' | sed 's/^/  /'
+
+echo ""
+echo "👥 Connections:"
+redis-cli -a $REDIS_PASS info clients 2>/dev/null | grep -E 'connected_clients|blocked_clients|maxclients' | sed 's/^/  /'
+
+echo ""
+echo "🔑 Keys per Database:"
+for db in {0..15}; do
+  count=$(redis-cli -a $REDIS_PASS -n $db DBSIZE 2>/dev/null)
+  if [ "$count" != "0" ] && [ -n "$count" ]; then
+    echo "  DB $db: $count keys"
+  fi
+done
+
+echo ""
+echo "🐌 Slow Queries (last 5):"
+redis-cli -a $REDIS_PASS SLOWLOG GET 5 2>/dev/null | grep -E 'duration|cmd' | head -10 | sed 's/^/  /'
+
+echo ""
+echo "⚡ Stats:"
+redis-cli -a $REDIS_PASS info stats 2>/dev/null | grep -E 'total_commands_processed|instantaneous_ops_per_sec|keyspace_hits|keyspace_misses|evicted_keys' | sed 's/^/  /'
+
+echo ""
+echo "🎯 Cache Hit Rate:"
+redis-cli -a $REDIS_PASS info stats 2>/dev/null | awk -F: '/keyspace_hits/{hits=$2} /keyspace_misses/{misses=$2} END{if(hits+misses>0) printf "  %.2f%% (Hits: %d, Misses: %d)\n", (hits/(hits+misses))*100, hits, misses}'
+
+echo "========================================"
+MONITOR_EOF
+
+# Replace placeholder with actual password
+sed -i "s/REDIS_PASSWORD_PLACEHOLDER/${REDIS_PASS}/" $MONITOR_SCRIPT
 chmod +x $MONITOR_SCRIPT
 
-echo "✅ Added enhanced Redis monitoring script: $MONITOR_SCRIPT"
-echo "Run it anytime with: sudo $MONITOR_SCRIPT"
+echo ""
+echo "✅ Enhanced monitoring script created: $MONITOR_SCRIPT"
+echo "   Run it anytime with: sudo $MONITOR_SCRIPT"
+echo ""
