@@ -41,7 +41,8 @@ ssh root@your-server-ip
 
 # Download the installation script
 curl -o postgres.sh https://gist.githubusercontent.com/drhema/bece21fefd4c988c44a5443d308ecd71/raw/postgres.sh
-
+OR
+curl -o postgres.sh https://raw.githubusercontent.com/drhema/postgres-as-service/refs/heads/main/postgres.sh
 # Make it executable
 chmod +x postgres.sh
 ```
