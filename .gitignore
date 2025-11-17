@@ -3,3 +3,8 @@ dist/
 .env
 *.log
 .DS_Store
+db.txt
+/backup/
+/redis/
+readme-dns.md
+postgres-dns.sh

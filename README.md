@@ -491,9 +491,23 @@ sudo certbot renew --dry-run
 
 ### Connection refused
 
-1. Check firewall (ports 5432, 80, 22)
-2. Verify pg_hba.conf: `sudo cat /etc/postgresql/16/main/pg_hba.conf`
-3. Check PostgreSQL is listening: `sudo netstat -tuln | grep 5432`
+1. **Check PostgreSQL is listening on all interfaces:**
+   ```bash
+   sudo ss -tunlp | grep 5432
+   ```
+   Should show `0.0.0.0:5432`, NOT `127.0.0.1:5432`
+
+   **Fix if needed:**
+   ```bash
+   # Edit postgresql.conf
+   sudo sed -i "s/^#*listen_addresses *=.*/listen_addresses = '*'/" /etc/postgresql/16/main/postgresql.conf
+
+   # Restart PostgreSQL
+   sudo systemctl restart postgresql
+   ```
+
+2. Check firewall (ports 5432, 80, 22)
+3. Verify pg_hba.conf: `sudo cat /etc/postgresql/16/main/pg_hba.conf`
 4. Test SSL: `openssl s_client -connect db.yourdomain.com:5432 -starttls postgres`
 
 ### API connection errors

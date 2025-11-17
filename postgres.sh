@@ -218,7 +218,11 @@ configure_postgresql() {
     EFFECTIVE_CACHE_GB=1
   fi
 
-  # Update postgresql.conf
+  # CRITICAL FIX: Replace listen_addresses instead of just appending
+  # This ensures PostgreSQL listens on all interfaces, not just localhost
+  sed -i "s/^#*listen_addresses *=.*/listen_addresses = '*'/" /etc/postgresql/16/main/postgresql.conf
+
+  # Update postgresql.conf with additional settings
   cat >> /etc/postgresql/16/main/postgresql.conf <<EOF
 
 # ===================================================================
@@ -227,7 +231,7 @@ configure_postgresql() {
 # ===================================================================
 
 # Connection Settings
-listen_addresses = '*'
+# listen_addresses is already set above via sed command
 port = 5432
 max_connections = 500
 superuser_reserved_connections = 10
