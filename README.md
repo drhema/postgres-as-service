@@ -1,9 +1,10 @@
 # PostgreSQL Multi-Tenant SaaS Platform
 
-Complete PostgreSQL-as-a-Service platform with REST API for database provisioning, SSL/TLS encryption, and per-database IP whitelisting.
+Complete PostgreSQL-as-a-Service platform with REST API for database provisioning, SSL/TLS encryption, and per-database IP whitelisting. Now with **Redis AI Cache** for multi-site deployments!
 
 ## Features
 
+### PostgreSQL Database Service
 - ✅ PostgreSQL 16 with SSL/TLS (Let's Encrypt)
 - ✅ Multi-tenant database isolation
 - ✅ REST API for database management
@@ -13,14 +14,24 @@ Complete PostgreSQL-as-a-Service platform with REST API for database provisionin
 - ✅ Audit logging
 - ✅ Daily automated backups
 
+### Redis AI Cache (NEW!)
+- ✅ Redis 7.x optimized for AI workloads
+- ✅ Multi-site support with key prefixes
+- ✅ Semantic caching for LLM responses (save 31% on costs)
+- ✅ Vector search support (6 parallel workers)
+- ✅ Embeddings cache for OpenAI/Anthropic
+- ✅ 4GB memory limit, 10K connections
+- ✅ Enhanced monitoring and analytics
+
 ## Table of Contents
 
-1. [Server Installation](#server-installation)
-2. [API Setup](#api-setup)
-3. [API Usage](#api-usage)
-4. [IP Whitelisting](#ip-whitelisting)
-5. [Management](#management)
-6. [Security](#security)
+1. [PostgreSQL Installation](#server-installation)
+2. [Redis Installation](#redis-installation-new)
+3. [API Setup](#api-setup)
+4. [API Usage](#api-usage)
+5. [IP Whitelisting](#ip-whitelisting)
+6. [Management](#management)
+7. [Security](#security)
 
 ---
 
@@ -92,6 +103,125 @@ Save the installation summary which includes:
 - Connection strings
 - SSL certificate locations
 - Management commands
+
+---
+
+## Redis Installation (NEW!)
+
+📖 **See [QUICK-START.md](QUICK-START.md) for the fastest way to get started!**
+
+### Quick Install
+
+One-command installation on your server:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/drhema/postgres-as-service/refs/heads/main/redis.sh | sudo bash
+```
+
+**Or download and review first:**
+
+```bash
+# Download the script
+curl -O https://raw.githubusercontent.com/drhema/postgres-as-service/refs/heads/main/redis.sh
+
+# Review it
+cat redis.sh
+
+# Make executable
+chmod +x redis.sh
+
+# Run it
+sudo ./redis.sh
+```
+
+### What Gets Installed
+
+- **Redis 7.x** with AI optimizations
+- **4GB memory** (40% of RAM, max)
+- **16 databases** for site isolation
+- **6 search workers** for vector/AI queries
+- **Multi-site support** via key prefixes
+- **Enhanced monitoring** script
+
+### Post-Installation
+
+1. **Save your connection URL:**
+   ```
+   redis://:YOUR_PASSWORD@YOUR_SERVER_IP:6379
+   ```
+
+2. **Configure firewall (CRITICAL!):**
+   ```bash
+   sudo ufw allow from YOUR_APP_SERVER_IP to any port 6379
+   sudo ufw deny 6379
+   sudo ufw enable
+   ```
+
+3. **Test connection:**
+   ```bash
+   redis-cli -h YOUR_SERVER_IP -p 6379 -a YOUR_PASSWORD ping
+   # Should return: PONG
+   ```
+
+### Redis Guides
+
+Comprehensive documentation included:
+
+| Guide | Description |
+|---|---|
+| [REDIS-INSTALLATION.md](REDIS-INSTALLATION.md) | Detailed installation & troubleshooting |
+| [REDIS-SETUP-SUMMARY.md](REDIS-SETUP-SUMMARY.md) | Quick reference guide |
+| [MULTI-SITE-REDIS-GUIDE.md](MULTI-SITE-REDIS-GUIDE.md) | Multi-site implementation with code examples |
+| [AI-CACHE-IMPLEMENTATION-GUIDE.md](AI-CACHE-IMPLEMENTATION-GUIDE.md) | AI caching, RAG, vector search, semantic cache |
+
+### Use Cases
+
+**1. Semantic Caching (Save 31% LLM costs):**
+```javascript
+const cache = new SemanticCache({
+  redis_url: 'redis://:PASSWORD@HOST:6379',
+  ttl: 3600
+});
+
+// Check cache before calling OpenAI
+const cached = await cache.check(prompt);
+```
+
+**2. Multi-Site Product Cache:**
+```javascript
+// All sites share one Redis URL
+await redis.setEx(
+  `site:${siteId}:products:${id}`,
+  3600,
+  JSON.stringify(product)
+);
+```
+
+**3. Vector Search for RAG:**
+```python
+# Retrieve relevant context for LLM
+results = index.query(
+  VectorQuery(vector=query_embedding, num_results=3)
+)
+```
+
+**4. Chat Session History:**
+```javascript
+await redis.rPush(
+  `site:${siteId}:chat:${sessionId}`,
+  JSON.stringify(message)
+);
+```
+
+### Cost Savings
+
+**With 80% cache hit rate:**
+- 10K LLM requests/day @ $0.03 each
+- Without cache: **$300/day**
+- With cache: **$60/day**
+- **Savings: $87,600/year**
+
+See [AI-CACHE-IMPLEMENTATION-GUIDE.md](AI-CACHE-IMPLEMENTATION-GUIDE.md) for complete examples.
 
 ---
 

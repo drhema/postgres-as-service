@@ -106,9 +106,9 @@ echo "databases 16" >> $REDIS_CONF               # 16 DBs for multi-site isolati
 echo "loglevel notice" >> $REDIS_CONF            # Reduced logging for performance
 
 # Vector search optimization (Redis Stack/Search)
-echo "# Vector search workers for parallel query processing" >> $REDIS_CONF
-echo "# Note: Only applies if using RediSearch/Redis Stack" >> $REDIS_CONF
-echo "search-workers 6" >> $REDIS_CONF           # 6 concurrent search threads for AI workloads
+# Note: search-workers only works with Redis Stack, not standard Redis
+# Uncomment the line below if you install Redis Stack later
+# echo "search-workers 6" >> $REDIS_CONF
 
 echo "# Disable expensive commands in production" >> $REDIS_CONF
 echo "rename-command FLUSHALL \"\"" >> $REDIS_CONF  # Disable dangerous commands
@@ -198,7 +198,9 @@ if systemctl is-active --quiet redis-server; then
     echo "• Hybrid persistence (RDB + AOF for durability)"
     echo "• Slow query logging (>10ms tracked)"
     echo "• 10,000 max concurrent connections"
-    echo "• 6 search workers for vector/AI queries (if using Redis Stack)"
+    echo ""
+    echo "💡 OPTIONAL: Install Redis Stack for vector search (with search-workers)"
+    echo "   docker run -d -p 6379:6379 redis/redis-stack-server:latest"
     echo ""
     echo "📝 RECOMMENDED TTL STRATEGIES:"
     echo "• Embeddings cache: 600s (10 min) - For temporary computations"
