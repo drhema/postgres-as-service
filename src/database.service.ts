@@ -86,12 +86,21 @@ export class DatabaseService {
       // 4. Grant privileges (NO TRANSACTION - must use autocommit)
       await adminClient.query(`GRANT ALL PRIVILEGES ON DATABASE ${databaseName} TO ${username}`);
 
-      const connectionString = `postgresql://${username}:${password}@${process.env.DB_HOST}:${process.env.DB_PORT}/${databaseName}?sslmode=require`;
+      // Generate all connection string variants (Neon-style)
+      const host = process.env.DB_HOST;
+      const baseUrl = `postgresql://${username}:${password}@${host}`;
 
       return {
         ...database,
         password,
-        connection_string: connectionString,
+        // Direct connection (port 5432)
+        connection_string: `${baseUrl}:5432/${databaseName}?sslmode=require`,
+        // PgBouncer connection (port 6432 with pgbouncer=true parameter)
+        connection_string_pooled: `${baseUrl}:6432/${databaseName}?sslmode=require&pgbouncer=true`,
+        // Shadow database URL (same database, for Prisma migrations)
+        shadow_database_url: `${baseUrl}:5432/${databaseName}?sslmode=require&schema=public`,
+        // Shadow with PgBouncer
+        shadow_database_url_pooled: `${baseUrl}:6432/${databaseName}?sslmode=require&schema=public&pgbouncer=true`,
       };
 
     } catch (error) {
@@ -223,8 +232,47 @@ export class DatabaseService {
   private formatBytes(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ['Bytes', 'KB', 'MB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  }
+
+  // ===================================================================
+  // Get Connection Strings (Neon-style)
+  // ===================================================================
+
+  /**
+   * Get all connection string variants for a database (Neon-style)
+   * Returns direct, pooled, and shadow URLs - all using the same database
+   */
+  async getConnectionStrings(id: string): Promise<any> {
+    const db = await this.getDatabase(id);
+    if (!db) {
+      throw new Error('Database not found');
+    }
+
+    // Get password hash from database
+    const result = await controlPool.query(
+      'SELECT password_hash FROM databases WHERE id = $1',
+      [id]
+    );
+
+    const host = process.env.DB_HOST;
+    const baseUrl = `postgresql://${db.username}:***@${host}`;
+
+    return {
+      database_id: id,
+      database_name: db.database_name,
+      username: db.username,
+      // Direct connection (port 5432)
+      connection_string: `${baseUrl}:5432/${db.database_name}?sslmode=require`,
+      // PgBouncer connection (port 6432 with pgbouncer=true parameter)
+      connection_string_pooled: `${baseUrl}:6432/${db.database_name}?sslmode=require&pgbouncer=true`,
+      // Shadow database URL (same database, for Prisma migrations)
+      shadow_database_url: `${baseUrl}:5432/${db.database_name}?sslmode=require&schema=public`,
+      // Shadow with PgBouncer
+      shadow_database_url_pooled: `${baseUrl}:6432/${db.database_name}?sslmode=require&schema=public&pgbouncer=true`,
+      note: 'All URLs use the same database. Use ?pgbouncer=true for connection pooling and ?schema=public for Prisma shadow database.'
+    };
   }
 }

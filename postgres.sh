@@ -135,9 +135,10 @@ install_dependencies() {
     curl \
     htop \
     net-tools \
-    openssl
+    openssl \
+    pgbouncer
 
-  log_success "Dependencies installed"
+  log_success "Dependencies installed (including PgBouncer)"
 }
 
 # Configure firewall - REMOVED (user manages via hardware firewall)
@@ -371,7 +372,9 @@ start_postgresql() {
   log_info "Starting PostgreSQL..."
 
   systemctl enable postgresql
-  systemctl start postgresql
+
+  # Restart to apply configuration changes (especially listen_addresses)
+  systemctl restart postgresql
 
   # Wait for PostgreSQL to be ready
   sleep 3
@@ -392,6 +395,131 @@ set_postgres_password() {
   sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_ADMIN_PASSWORD';"
 
   log_success "PostgreSQL admin password set"
+}
+
+# Configure PgBouncer
+configure_pgbouncer() {
+  log_info "Configuring PgBouncer connection pooler..."
+
+  # Create PgBouncer directories
+  mkdir -p /etc/pgbouncer
+  mkdir -p /var/log/pgbouncer
+  mkdir -p /var/run/pgbouncer
+  chown -R postgres:postgres /var/log/pgbouncer
+  chown -R postgres:postgres /var/run/pgbouncer
+
+  # Note: With auth_query, passwords are fetched from PostgreSQL
+  # We still add admin users to userlist.txt for initial access
+  # Using SCRAM-SHA-256, passwords will be verified via auth_query
+
+  # Create pgbouncer.ini configuration
+  cat > /etc/pgbouncer/pgbouncer.ini <<'PGBOUNCER_INI'
+[databases]
+postgres_control = host=127.0.0.1 port=5432 dbname=postgres_control
+postgres = host=127.0.0.1 port=5432 dbname=postgres
+* = host=127.0.0.1 port=5432
+
+[pgbouncer]
+pool_mode = transaction
+max_client_conn = 1000
+default_pool_size = 25
+min_pool_size = 5
+reserve_pool_size = 5
+reserve_pool_timeout = 3
+max_db_connections = 100
+max_user_connections = 100
+server_lifetime = 3600
+server_idle_timeout = 600
+listen_addr = 0.0.0.0
+listen_port = 6432
+logfile = /var/log/pgbouncer/pgbouncer.log
+pidfile = /var/run/pgbouncer/pgbouncer.pid
+log_connections = 1
+log_disconnections = 1
+log_pooler_errors = 1
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+auth_user = postgres
+auth_query = SELECT usename, passwd FROM pg_shadow WHERE usename=$1
+admin_users = postgres
+stats_users = postgres, api_user
+max_packet_size = 4096
+pkt_buf = 4096
+sbuf_loopcnt = 5
+PGBOUNCER_INI
+
+  # Create empty userlist.txt for now (will be populated after api_user is created)
+  touch /etc/pgbouncer/userlist.txt
+
+  # Set proper permissions
+  chown -R postgres:postgres /etc/pgbouncer
+  chmod 640 /etc/pgbouncer/pgbouncer.ini
+  chmod 600 /etc/pgbouncer/userlist.txt
+
+  log_success "PgBouncer configuration created (userlist.txt will be populated after users are created)"
+}
+
+# Setup PgBouncer authentication (call this AFTER users are created)
+setup_pgbouncer_auth() {
+  log_info "Setting up PgBouncer authentication with SCRAM-SHA-256..."
+
+  # With auth_query and SCRAM-SHA-256, we need plaintext passwords in userlist.txt
+  # PgBouncer will use these to authenticate to PostgreSQL when running auth_query
+  # Tenant users will be authenticated via auth_query (fetching from pg_shadow)
+
+  # Create userlist.txt with plaintext passwords for admin users
+  cat > /etc/pgbouncer/userlist.txt <<EOF
+"postgres" "${POSTGRES_ADMIN_PASSWORD}"
+"api_user" "${POSTGRES_ADMIN_PASSWORD}"
+EOF
+
+  chmod 600 /etc/pgbouncer/userlist.txt
+  chown postgres:postgres /etc/pgbouncer/userlist.txt
+
+  log_success "PgBouncer authentication configured with SCRAM-SHA-256"
+}
+
+# Start PgBouncer service
+start_pgbouncer() {
+  log_info "Starting PgBouncer service..."
+
+  # Create systemd tmpfiles.d configuration for runtime directory
+  # This ensures /var/run/pgbouncer is created on boot
+  cat > /etc/tmpfiles.d/pgbouncer.conf <<'TMPFILES'
+d /var/run/pgbouncer 0755 postgres postgres -
+TMPFILES
+
+  # Create the runtime directory now
+  mkdir -p /var/run/pgbouncer
+  chown postgres:postgres /var/run/pgbouncer
+
+  # Create systemd service override to run as postgres user
+  mkdir -p /etc/systemd/system/pgbouncer.service.d
+  cat > /etc/systemd/system/pgbouncer.service.d/override.conf <<'OVERRIDE'
+[Service]
+User=postgres
+Group=postgres
+OVERRIDE
+
+  # Reload systemd
+  systemctl daemon-reload
+
+  # Enable and start PgBouncer
+  systemctl enable pgbouncer
+
+  # Restart to apply configuration changes (especially listen_addr)
+  systemctl restart pgbouncer
+
+  # Wait for PgBouncer to be ready
+  sleep 2
+
+  if systemctl is-active --quiet pgbouncer; then
+    log_success "PgBouncer started successfully on port 6432"
+  else
+    log_error "Failed to start PgBouncer"
+    journalctl -u pgbouncer -n 50
+    exit 1
+  fi
 }
 
 # Create control database
@@ -477,12 +605,30 @@ CREATE TABLE database_stats (
 );
 
 -- ===================================================================
+-- Shadow databases table - stores shadow database information
+-- Used for Prisma migrations, testing, and development
+-- ===================================================================
+CREATE TABLE shadow_databases (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent_database_id UUID REFERENCES databases(id) ON DELETE CASCADE,
+  shadow_database_name VARCHAR(255) UNIQUE NOT NULL,
+  shadow_username VARCHAR(255) UNIQUE NOT NULL,
+  shadow_password_hash VARCHAR(255) NOT NULL,
+  status VARCHAR(50) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT NOW(),
+  synced_at TIMESTAMP,
+  last_sync_status VARCHAR(50)
+);
+
+-- ===================================================================
 -- Indexes for performance
 -- ===================================================================
 CREATE INDEX idx_databases_status ON databases(status);
 CREATE INDEX idx_databases_created_at ON databases(created_at);
 CREATE INDEX idx_databases_email ON databases(owner_email);
 CREATE INDEX idx_ip_whitelist_db ON ip_whitelist(database_id);
+CREATE INDEX idx_shadow_databases_parent ON shadow_databases(parent_database_id);
+CREATE INDEX idx_shadow_databases_status ON shadow_databases(status);
 CREATE INDEX idx_ip_whitelist_ip ON ip_whitelist(ip_address);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_api_key ON audit_logs(api_key_id);
@@ -594,7 +740,8 @@ setup_ssl_renewal() {
 # PostgreSQL SSL Certificate Renewal Hook
 # This script runs after certbot renews the SSL certificate
 
-DOMAIN=$(ls /etc/letsencrypt/live/ | head -n 1)
+# Find the actual domain directory (exclude README file)
+DOMAIN=$(ls -d /etc/letsencrypt/live/*/ 2>/dev/null | head -n 1 | xargs basename)
 SSL_DIR="/etc/postgresql/16/main/ssl"
 
 # Copy renewed certificates
@@ -631,6 +778,12 @@ create_management_scripts() {
 echo "=== PostgreSQL Status ==="
 systemctl status postgresql --no-pager -l
 echo ""
+echo "=== PgBouncer Status ==="
+systemctl status pgbouncer --no-pager -l
+echo ""
+echo "=== PgBouncer Pools ==="
+psql -h 127.0.0.1 -p 6432 -U postgres pgbouncer -c "SHOW POOLS;" 2>/dev/null || echo "PgBouncer not accessible"
+echo ""
 echo "=== Active Connections ==="
 sudo -u postgres psql -c "SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;"
 echo ""
@@ -638,6 +791,31 @@ echo "=== Database Sizes ==="
 sudo -u postgres psql -c "SELECT datname, pg_size_pretty(pg_database_size(datname)) as size FROM pg_database WHERE datistemplate = false ORDER BY pg_database_size(datname) DESC;"
 STATUS_SCRIPT
   chmod +x /usr/local/bin/pg-status
+
+  # PgBouncer management scripts
+  cat > /usr/local/bin/pg-bouncer-status <<'PGBOUNCER_STATUS_SCRIPT'
+#!/bin/bash
+echo "=== PgBouncer Service Status ==="
+systemctl status pgbouncer --no-pager
+echo ""
+echo "=== PgBouncer Connection Pools ==="
+psql -h 127.0.0.1 -p 6432 -U postgres pgbouncer -c "SHOW POOLS;"
+echo ""
+echo "=== PgBouncer Statistics ==="
+psql -h 127.0.0.1 -p 6432 -U postgres pgbouncer -c "SHOW STATS;"
+echo ""
+echo "=== PgBouncer Databases ==="
+psql -h 127.0.0.1 -p 6432 -U postgres pgbouncer -c "SHOW DATABASES;"
+PGBOUNCER_STATUS_SCRIPT
+  chmod +x /usr/local/bin/pg-bouncer-status
+
+  cat > /usr/local/bin/pg-bouncer-reload <<'PGBOUNCER_RELOAD_SCRIPT'
+#!/bin/bash
+echo "Reloading PgBouncer configuration..."
+psql -h 127.0.0.1 -p 6432 -U postgres pgbouncer -c "RELOAD;"
+echo "PgBouncer configuration reloaded"
+PGBOUNCER_RELOAD_SCRIPT
+  chmod +x /usr/local/bin/pg-bouncer-reload
 
   # Script 2: Backup control database
   cat > /usr/local/bin/pg-backup-control <<'BACKUP_SCRIPT'
@@ -851,7 +1029,10 @@ main() {
   configure_postgresql
   start_postgresql
   set_postgres_password
+  configure_pgbouncer
   create_control_database
+  setup_pgbouncer_auth
+  start_pgbouncer
   setup_ssl_renewal
   create_management_scripts
   setup_backup_cron

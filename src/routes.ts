@@ -202,4 +202,28 @@ router.delete('/databases/:id/whitelist/:whitelistId', async (req: Request, res:
   }
 });
 
+// ===================================================================
+// Connection Strings Route (Neon-style)
+// ===================================================================
+
+// Get all connection string variants for a database
+// Returns direct, pooled, and shadow URLs - all using the same database
+router.get('/databases/:id/connection-strings', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const connectionStrings = await dbService.getConnectionStrings(id);
+
+    res.json({
+      success: true,
+      data: connectionStrings
+    });
+  } catch (error: any) {
+    console.error('Error getting connection strings:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+});
+
 export default router;
