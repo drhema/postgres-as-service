@@ -93,14 +93,16 @@ export class DatabaseService {
       return {
         ...database,
         password,
-        // Direct connection (port 5432)
-        connection_string: `${baseUrl}:5432/${databaseName}?sslmode=require`,
-        // PgBouncer connection (port 6432 with pgbouncer=true parameter)
-        connection_string_pooled: `${baseUrl}:6432/${databaseName}?sslmode=require&pgbouncer=true`,
-        // Shadow database URL (same database, for Prisma migrations)
-        shadow_database_url: `${baseUrl}:5432/${databaseName}?sslmode=require&schema=public`,
-        // Shadow with PgBouncer
-        shadow_database_url_pooled: `${baseUrl}:6432/${databaseName}?sslmode=require&schema=public&pgbouncer=true`,
+        // DATABASE_URL: Pooled connection for Prisma (port 6432)
+        // Note: pgbouncer=true is an application hint, not a PostgreSQL parameter
+        DATABASE_URL: `${baseUrl}:6432/${databaseName}?sslmode=disable&pgbouncer=true&connect_timeout=15`,
+
+        // DIRECT_URL: Direct connection without pooling (port 5432)
+        DIRECT_URL: `${baseUrl}:5432/${databaseName}?sslmode=require`,
+
+        // SHADOW_DATABASE_URL: For Prisma migrations
+        // Note: schema=public is an application hint for Prisma, not a PostgreSQL parameter
+        SHADOW_DATABASE_URL: `${baseUrl}:5432/${databaseName}?sslmode=require&schema=public`,
       };
 
     } catch (error) {
@@ -264,15 +266,19 @@ export class DatabaseService {
       database_id: id,
       database_name: db.database_name,
       username: db.username,
-      // Direct connection (port 5432)
-      connection_string: `${baseUrl}:5432/${db.database_name}?sslmode=require`,
-      // PgBouncer connection (port 6432 with pgbouncer=true parameter)
-      connection_string_pooled: `${baseUrl}:6432/${db.database_name}?sslmode=require&pgbouncer=true`,
-      // Shadow database URL (same database, for Prisma migrations)
-      shadow_database_url: `${baseUrl}:5432/${db.database_name}?sslmode=require&schema=public`,
-      // Shadow with PgBouncer
-      shadow_database_url_pooled: `${baseUrl}:6432/${db.database_name}?sslmode=require&schema=public&pgbouncer=true`,
-      note: 'All URLs use the same database. Use ?pgbouncer=true for connection pooling and ?schema=public for Prisma shadow database.'
+
+      // DATABASE_URL: Pooled connection for Prisma (port 6432)
+      // Note: pgbouncer=true is an application hint, not a PostgreSQL parameter
+      DATABASE_URL: `${baseUrl}:6432/${db.database_name}?sslmode=disable&pgbouncer=true&connect_timeout=15`,
+
+      // DIRECT_URL: Direct connection without pooling (port 5432)
+      DIRECT_URL: `${baseUrl}:5432/${db.database_name}?sslmode=require`,
+
+      // SHADOW_DATABASE_URL: For Prisma migrations
+      // Note: schema=public is an application hint for Prisma, not a PostgreSQL parameter
+      SHADOW_DATABASE_URL: `${baseUrl}:5432/${db.database_name}?sslmode=require&schema=public`,
+
+      note: 'Use DATABASE_URL for most queries (pooled), DIRECT_URL for migrations/transactions that need session-level features, and SHADOW_DATABASE_URL for Prisma shadow database during migrations.'
     };
   }
 }

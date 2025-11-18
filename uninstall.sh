@@ -111,6 +111,7 @@ remove_packages() {
   # Remove PostgreSQL
   apt-get remove --purge -y postgresql-16 postgresql-client-16 postgresql-contrib-16 2>/dev/null || true
   apt-get remove --purge -y postgresql postgresql-client postgresql-contrib 2>/dev/null || true
+  apt-get remove --purge -y postgresql-16-pgvector postgresql-16-postgis-3 2>/dev/null || true
 
   # Remove PostgreSQL repository
   rm -f /etc/apt/sources.list.d/pgdg.list

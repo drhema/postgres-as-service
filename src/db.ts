@@ -27,7 +27,8 @@ export const controlPool = new Pool({
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max: DB_PGBOUNCER_ENABLED ? 100 : 20, // Higher limit when using PgBouncer
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 20000, // 20 seconds for very high latency connections
+  query_timeout: 30000, // 30 seconds for queries
 });
 
 // Admin connection pool (for creating databases and users)
@@ -42,7 +43,8 @@ export const adminPool = new Pool({
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max: 50, // Increased for better admin operation concurrency
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 20000, // 20 seconds for very high latency connections
+  query_timeout: 30000, // 30 seconds for queries
 });
 
 // Test connection
