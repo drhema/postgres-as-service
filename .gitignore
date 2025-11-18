@@ -8,3 +8,4 @@ db.txt
 /redis/
 readme-dns.md
 postgres-dns.sh
+postgres-dns copy.sh

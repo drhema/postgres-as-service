@@ -119,10 +119,15 @@ install_postgresql() {
   apt-get install -y -qq postgresql-common
   /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
 
-  # Install PostgreSQL 16 and contrib packages
-  apt-get install -y postgresql-16 postgresql-contrib-16 postgresql-client-16
+  # Install PostgreSQL 16, contrib packages, and extensions
+  apt-get install -y \
+    postgresql-16 \
+    postgresql-contrib-16 \
+    postgresql-client-16 \
+    postgresql-16-pgvector \
+    postgresql-16-postgis-3
 
-  log_success "PostgreSQL 16 installed"
+  log_success "PostgreSQL 16 and extensions installed"
 }
 
 # Install SSL and other tools
@@ -533,9 +538,35 @@ CREATE DATABASE postgres_control;
 -- Connect to control database
 \c postgres_control;
 
--- Enable required extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+-- ===================================================================
+-- Enable core extensions
+-- ===================================================================
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";       -- UUID generation
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements"; -- Query statistics
+
+-- ===================================================================
+-- Search, Text & Indexing extensions
+-- ===================================================================
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";         -- Trigram indexes for ILIKE searches
+CREATE EXTENSION IF NOT EXISTS "unaccent";        -- Remove accents (café → cafe)
+CREATE EXTENSION IF NOT EXISTS "btree_gin";       -- Extra GIN index operator classes
+CREATE EXTENSION IF NOT EXISTS "btree_gist";      -- Extra GiST index operator classes
+
+-- ===================================================================
+-- Types & Convenience extensions
+-- ===================================================================
+CREATE EXTENSION IF NOT EXISTS "citext";          -- Case-insensitive text type
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";        -- Cryptographic functions
+
+-- ===================================================================
+-- AI / Vector extensions
+-- ===================================================================
+CREATE EXTENSION IF NOT EXISTS "vector";          -- pgvector for embeddings/AI
+
+-- ===================================================================
+-- Geospatial extension
+-- ===================================================================
+CREATE EXTENSION IF NOT EXISTS "postgis";         -- Geographic objects support
 
 -- ===================================================================
 -- Databases table - stores metadata for all tenant databases
