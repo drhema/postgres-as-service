@@ -32,9 +32,6 @@ services:
       PG_ADMIN_USER: ${PG_ADMIN_USER:-postgres}
       PG_ADMIN_PASSWORD: ${PG_ADMIN_PASSWORD}
 
-    env_file:
-      - .env
-
     networks:
       - postgres-network
 
