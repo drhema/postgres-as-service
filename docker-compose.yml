@@ -1,0 +1,56 @@
+services:
+  postgres-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: postgres-saas-api:latest
+    container_name: postgres-saas-api
+    restart: unless-stopped
+    ports:
+      - "2600:2600"
+    environment:
+      # API Configuration
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-2600}
+
+      # PostgreSQL Control Database Connection
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-postgres_control}
+      DB_SSL: ${DB_SSL:-true}
+
+      # PgBouncer Configuration
+      DB_PGBOUNCER_ENABLED: ${DB_PGBOUNCER_ENABLED:-false}
+      DB_PGBOUNCER_PORT: ${DB_PGBOUNCER_PORT:-6432}
+
+      # API Security
+      API_KEY: ${API_KEY}
+
+      # PostgreSQL Admin Credentials
+      PG_ADMIN_USER: ${PG_ADMIN_USER:-postgres}
+      PG_ADMIN_PASSWORD: ${PG_ADMIN_PASSWORD}
+
+    env_file:
+      - .env
+
+    networks:
+      - postgres-network
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:2600/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  postgres-network:
+    driver: bridge

@@ -1,0 +1,54 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+coverage
+.nyc_output
+*.test.ts
+*.spec.ts
+
+# Logs
+logs
+*.log
+
+# Redis documentation
+redis/
+
+# Backup files
+backup/
+
+# Scripts
+*.sh
+!docker-entrypoint.sh
+
+# Misc
+.claude
+db.txt
