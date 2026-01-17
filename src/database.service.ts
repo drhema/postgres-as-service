@@ -87,8 +87,9 @@ export class DatabaseService {
       await adminClient.query(`GRANT ALL PRIVILEGES ON DATABASE ${databaseName} TO ${username}`);
 
       // Generate all connection string variants (Neon-style)
-      const host = process.env.DB_HOST;
-      const baseUrl = `postgresql://${username}:${password}@${host}`;
+      // Use PUBLIC_HOST for external connection strings (falls back to DB_HOST)
+      const publicHost = process.env.PUBLIC_HOST || process.env.DB_HOST;
+      const baseUrl = `postgresql://${username}:${password}@${publicHost}`;
 
       return {
         ...database,
@@ -259,8 +260,9 @@ export class DatabaseService {
       [id]
     );
 
-    const host = process.env.DB_HOST;
-    const baseUrl = `postgresql://${db.username}:***@${host}`;
+    // Use PUBLIC_HOST for external connection strings (falls back to DB_HOST)
+    const publicHost = process.env.PUBLIC_HOST || process.env.DB_HOST;
+    const baseUrl = `postgresql://${db.username}:***@${publicHost}`;
 
     return {
       database_id: id,

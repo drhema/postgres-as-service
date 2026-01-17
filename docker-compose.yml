@@ -30,6 +30,9 @@ services:
       # API Security
       API_KEY: ${API_KEY}
 
+      # Public Host (for external connection strings)
+      PUBLIC_HOST: ${PUBLIC_HOST:-}
+
       # PostgreSQL Admin Credentials
       PG_ADMIN_USER: ${PG_ADMIN_USER:-postgres}
       PG_ADMIN_PASSWORD: ${PG_ADMIN_PASSWORD}
