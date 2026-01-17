@@ -691,6 +691,13 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";        -- Cryptographic functions
 CREATE EXTENSION IF NOT EXISTS "vector";          -- pgvector for embeddings/AI
 
 -- ===================================================================
+-- Chat & Messaging extensions
+-- ===================================================================
+CREATE EXTENSION IF NOT EXISTS "hstore";          -- Key-value pairs (message metadata)
+CREATE EXTENSION IF NOT EXISTS "ltree";           -- Hierarchical data (chat threads)
+CREATE EXTENSION IF NOT EXISTS "tablefunc";       -- Crosstab/pivot queries
+
+-- ===================================================================
 -- Geospatial extension
 -- ===================================================================
 CREATE EXTENSION IF NOT EXISTS "postgis";         -- Geographic objects support
